@@ -1,19 +1,34 @@
 import bcrypt from 'bcrypt';
 import postgres from 'postgres';
-import { invoices, customers, revenue, users } from '../lib/placeholder-data';
+import {
+  invoices,
+  customers,
+  revenue,
+  users,
+} from '../lib/placeholder-data';
 
-// ✅ FIX: pakai UNPOOLED dulu, fallback ke biasa
+export const dynamic = 'force-dynamic';
+
+// gunakan unpooled dulu, fallback ke biasa
 const connectionString =
-  process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+  process.env.DATABASE_URL_UNPOOLED ||
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL;
 
 if (!connectionString) {
-  throw new Error('Database URL not found in .env');
+  console.warn('Database URL not found');
 }
 
-const sql = postgres(connectionString, { ssl: 'require' });
+const sql = connectionString
+  ? postgres(connectionString, {
+      ssl: 'require',
+      connect_timeout: 60,
+    })
+  : null;
 
 async function seedUsers(sql: any) {
   await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
@@ -25,10 +40,19 @@ async function seedUsers(sql: any) {
 
   const insertedUsers = await Promise.all(
     users.map(async (user) => {
-      const hashedPassword = await bcrypt.hash(user.password, 10);
+      const hashedPassword = await bcrypt.hash(
+        user.password,
+        10,
+      );
+
       return sql`
         INSERT INTO users (id, name, email, password)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword})
+        VALUES (
+          ${user.id},
+          ${user.name},
+          ${user.email},
+          ${hashedPassword}
+        )
         ON CONFLICT (id) DO NOTHING;
       `;
     }),
@@ -53,8 +77,18 @@ async function seedInvoices(sql: any) {
   const insertedInvoices = await Promise.all(
     invoices.map(
       (invoice) => sql`
-        INSERT INTO invoices (customer_id, amount, status, date)
-        VALUES (${invoice.customer_id}, ${invoice.amount}, ${invoice.status}, ${invoice.date})
+        INSERT INTO invoices (
+          customer_id,
+          amount,
+          status,
+          date
+        )
+        VALUES (
+          ${invoice.customer_id},
+          ${invoice.amount},
+          ${invoice.status},
+          ${invoice.date}
+        )
         ON CONFLICT (id) DO NOTHING;
       `,
     ),
@@ -78,8 +112,18 @@ async function seedCustomers(sql: any) {
   const insertedCustomers = await Promise.all(
     customers.map(
       (customer) => sql`
-        INSERT INTO customers (id, name, email, image_url)
-        VALUES (${customer.id}, ${customer.name}, ${customer.email}, ${customer.image_url})
+        INSERT INTO customers (
+          id,
+          name,
+          email,
+          image_url
+        )
+        VALUES (
+          ${customer.id},
+          ${customer.name},
+          ${customer.email},
+          ${customer.image_url}
+        )
         ON CONFLICT (id) DO NOTHING;
       `,
     ),
@@ -99,8 +143,14 @@ async function seedRevenue(sql: any) {
   const insertedRevenue = await Promise.all(
     revenue.map(
       (rev) => sql`
-        INSERT INTO revenue (month, revenue)
-        VALUES (${rev.month}, ${rev.revenue})
+        INSERT INTO revenue (
+          month,
+          revenue
+        )
+        VALUES (
+          ${rev.month},
+          ${rev.revenue}
+        )
         ON CONFLICT (month) DO NOTHING;
       `,
     ),
@@ -110,6 +160,13 @@ async function seedRevenue(sql: any) {
 }
 
 export async function GET() {
+  if (!sql) {
+    return Response.json(
+      { error: 'Database not configured' },
+      { status: 500 },
+    );
+  }
+
   try {
     await sql.begin(async (sql) => {
       await seedUsers(sql);
@@ -118,9 +175,15 @@ export async function GET() {
       await seedRevenue(sql);
     });
 
-    return Response.json({ message: 'Database seeded successfully' });
+    return Response.json({
+      message: 'Database seeded successfully',
+    });
   } catch (error) {
-    console.error('SEED ERROR:', error); // biar kelihatan di terminal
-    return Response.json({ error }, { status: 500 });
+    console.error('SEED ERROR:', error);
+
+    return Response.json(
+      { error },
+      { status: 500 },
+    );
   }
 }
