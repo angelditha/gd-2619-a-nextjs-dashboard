@@ -24,4 +24,4 @@ export async function GET() {
     console.error(error); // biar kelihatan di logs
     return Response.json({ error }, { status: 500 });
   }
-}
+}  
